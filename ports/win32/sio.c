@@ -42,7 +42,7 @@
 #ifdef _MSC_VER
 #pragma warning (pop)
 #endif
-#include "lwipcfg_msvc.h"
+#include "lwipcfg.h"
 
 /** When 1, use COM ports, when 0, use named pipes (for simulation). */
 #ifndef SIO_USE_COMPORT
@@ -148,16 +148,16 @@ sio_fd_t sio_open(u8_t devnum)
   CHAR   fileName[256];
   LWIP_DEBUGF(SIO_DEBUG, ("sio_open(%lu)\n", (DWORD)devnum));
 #if SIO_USE_COMPORT
-  _snprintf(fileName, 255, SIO_DEVICENAME"%lu", (DWORD)(devnum));
+  snprintf(fileName, 255, SIO_DEVICENAME"%lu", (DWORD)(devnum));
 #else /* SIO_USE_COMPORT */
-  _snprintf(fileName, 255, SIO_DEVICENAME"%lu", (DWORD)(devnum & ~1));
+  snprintf(fileName, 255, SIO_DEVICENAME"%lu", (DWORD)(devnum & ~1));
   if ((devnum & 1) == 0) {
-    fileHandle = CreateNamedPipe(fileName, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_NOWAIT,
+    fileHandle = CreateNamedPipeA(fileName, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_NOWAIT,
       PIPE_UNLIMITED_INSTANCES, 102400, 102400, 100, NULL);
   } else
 #endif /* SIO_USE_COMPORT */
   {
-    fileHandle = CreateFile(fileName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    fileHandle = CreateFileA(fileName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
   }
   if (fileHandle != INVALID_HANDLE_VALUE) {
     sio_abort = 0;

@@ -34,6 +34,8 @@
 
 #include "lwip/arch.h"
 
+#define LWIP_HOOK_FILENAME "lwip_hooks.h"
+
 #define LWIP_IPV4          1
 #define LWIP_IPV6          1
 
@@ -90,7 +92,7 @@ extern unsigned char debug_flags;
    byte alignment -> define MEM_ALIGNMENT to 2. */
 /* MSVC port: intel processors don't need 4-byte alignment,
    but are faster that way! */
-#define MEM_ALIGNMENT           4
+#define MEM_ALIGNMENT           4U
 
 /* MEM_SIZE: the size of the heap memory. If the application will send
 a lot of data that needs to be copied, this should be set high. */
@@ -105,26 +107,26 @@ a lot of data that needs to be copied, this should be set high. */
 #define MEMP_NUM_RAW_PCB        3
 /* MEMP_NUM_UDP_PCB: the number of UDP protocol control blocks. One
    per active UDP "connection". */
-#define MEMP_NUM_UDP_PCB        6
+#define MEMP_NUM_UDP_PCB        7
 /* MEMP_NUM_TCP_PCB: the number of simulatenously active TCP
    connections. */
-#define MEMP_NUM_TCP_PCB        5
+#define MEMP_NUM_TCP_PCB        6
 /* MEMP_NUM_TCP_PCB_LISTEN: the number of listening TCP
    connections. */
-#define MEMP_NUM_TCP_PCB_LISTEN 8
+#define MEMP_NUM_TCP_PCB_LISTEN 9
 /* MEMP_NUM_TCP_SEG: the number of simultaneously queued TCP
    segments. */
 #define MEMP_NUM_TCP_SEG        16
 /* MEMP_NUM_SYS_TIMEOUT: the number of simulateously active
    timeouts. */
-#define MEMP_NUM_SYS_TIMEOUT    12
+#define MEMP_NUM_SYS_TIMEOUT    17
 
 /* The following four are used only with the sequential API and can be
    set to 0 if the application only will use the raw API. */
 /* MEMP_NUM_NETBUF: the number of struct netbufs. */
 #define MEMP_NUM_NETBUF         2
 /* MEMP_NUM_NETCONN: the number of struct netconns. */
-#define MEMP_NUM_NETCONN        10
+#define MEMP_NUM_NETCONN        11
 /* MEMP_NUM_TCPIP_MSG_*: the number of struct tcpip_msg, which is used
    for sequential API communication and incoming packets. Used in
    src/api/tcpip.c. */
@@ -155,7 +157,13 @@ a lot of data that needs to be copied, this should be set high. */
 
 /* ---------- TCP options ---------- */
 #define LWIP_TCP                1
+#define LWIP_ALTCP              (LWIP_TCP)
 #define TCP_TTL                 255
+
+#ifdef LWIP_HAVE_MBEDTLS
+#define LWIP_ALTCP_TLS          (LWIP_TCP)
+#define LWIP_ALTCP_TLS_MBEDTLS  (LWIP_TCP)
+#endif
 
 #define TCP_LISTEN_BACKLOG      1
 
@@ -176,7 +184,7 @@ a lot of data that needs to be copied, this should be set high. */
 /* TCP writable space (bytes). This must be less than or equal
    to TCP_SND_BUF. It is the amount of space which must be
    available in the tcp snd_buf for select to return writable */
-#define TCP_SNDLOWAT		(TCP_SND_BUF/2)
+#define TCP_SNDLOWAT            (TCP_SND_BUF/2)
 
 /* TCP receive window. */
 #define TCP_WND                 8096
@@ -220,6 +228,8 @@ a lot of data that needs to be copied, this should be set high. */
 
 #define LWIP_DHCP_GET_NTP_SRV   (LWIP_DHCP)
 
+#define LWIP_IPV6_DHCP6         LWIP_IPV6
+
 /* 1 if you want to do an ARP check on the offered address
    (recommended if using DHCP). */
 #define DHCP_DOES_ARP_CHECK     (LWIP_DHCP)
@@ -229,14 +239,20 @@ a lot of data that needs to be copied, this should be set high. */
 #define LWIP_DHCP_AUTOIP_COOP   (LWIP_DHCP)
 #define LWIP_DHCP_AUTOIP_COOP_TRIES  3
 
+/* ---------- NETBIOS options ---------- */
+#define LWIP_NETBIOS_RESPOND_NAME_QUERY 1
+
 /* ---------- SNTP options --------- */
-extern void sntp_set_system_time(u32_t sec);
+#include "examples/sntp/sntp_example.h"
 #define SNTP_SET_SYSTEM_TIME(s) sntp_set_system_time(s)
 
 /* ---------- SNMP options ---------- */
-#define LWIP_SNMP               1
-#define MIB2_STATS              LWIP_SNMP
-#define SNMP_USE_NETCONN        LWIP_NETCONN
+#define LWIP_SNMP               (LWIP_UDP)
+#ifdef LWIP_HAVE_MBEDTLS
+#define LWIP_SNMP_V3            (LWIP_SNMP)
+#endif
+#define MIB2_STATS              (LWIP_SNMP)
+#define SNMP_USE_NETCONN        (LWIP_NETCONN)
 #define SNMP_USE_RAW            (!LWIP_NETCONN)
 
 /* ---------- DNS options ---------- */
@@ -269,7 +285,7 @@ extern void sntp_set_system_time(u32_t sec);
 
 /* ---------- SLIP options ---------- */
 
-#define LWIP_HAVE_SLIPIF  1      /* Set > 0 for SLIP */
+#define LWIP_HAVE_SLIPIF  0      /* Set > 0 for SLIP */
 
 /* Maximum packet size that is received by this netif */
 #define SLIP_MAX_SIZE     1500
@@ -358,6 +374,28 @@ extern void sntp_set_system_time(u32_t sec);
 
 #endif /* PPP_SUPPORT > 0 */
 
-#define LWIP_HTTPD_SSI          1
+#define LWIP_HTTPD_SSI  1
+
+/*
+   ---------------------------------------
+   ---------- Threading options ----------
+   ---------------------------------------
+*/
+
+#define LWIP_TCPIP_CORE_LOCKING    1
+
+#if !NO_SYS
+void sys_check_core_locking(void);
+#define LWIP_ASSERT_CORE_LOCKED()  sys_check_core_locking()
+void sys_mark_tcpip_thread(void);
+#define LWIP_MARK_TCPIP_THREAD()   sys_mark_tcpip_thread()
+
+#if LWIP_TCPIP_CORE_LOCKING
+void sys_lock_tcpip_core(void);
+#define LOCK_TCPIP_CORE()          sys_lock_tcpip_core()
+void sys_unlock_tcpip_core(void);
+#define UNLOCK_TCPIP_CORE()        sys_unlock_tcpip_core()
+#endif
+#endif
 
 #endif /* LWIP_LWIPOPTS_H */

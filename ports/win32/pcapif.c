@@ -35,7 +35,7 @@
  */
 
 /* include the port-dependent configuration */
-#include "lwipcfg_msvc.h"
+#include "lwipcfg.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -86,8 +86,10 @@
 #define PCAPIF_FILTER_GROUP_ADDRESSES 1
 #endif
 
-/** Set this to 1 to receive all frames (also unicast to other addresses;
-    this is only needed for test purposes) */
+/** Set this to 1 to receive all frames (also unicast to other addresses)
+ * In this mode, filtering out our own tx packets from loopback receiving
+ * is done via matching rx against recent tx (memcmp).
+ */
 #ifndef PCAPIF_RECEIVE_PROMISCUOUS
 #define PCAPIF_RECEIVE_PROMISCUOUS    0
 #endif
@@ -133,15 +135,6 @@
 #define PCAPIF_LINKUP_DELAY           0
 #endif
 
-/* Define PCAPIF_RX_LOCK_LWIP and PCAPIF_RX_UNLOCK_LWIP if you need to lock the lwIP core
-   before/after pbuf_alloc() or netif->input() are called on RX. */
-#ifndef PCAPIF_RX_LOCK_LWIP
-#define PCAPIF_RX_LOCK_LWIP()
-#endif
-#ifndef PCAPIF_RX_UNLOCK_LWIP
-#define PCAPIF_RX_UNLOCK_LWIP()
-#endif
-
 #define PCAPIF_LINKCHECK_INTERVAL_MS 500
 
 /* link state notification macro */
@@ -153,11 +146,31 @@
 
 #endif /* PCAPIF_HANDLE_LINKSTATE */
 
+/* Define PCAPIF_RX_LOCK_LWIP and PCAPIF_RX_UNLOCK_LWIP if you need to lock the lwIP core
+   before/after pbuf_alloc() or netif->input() are called on RX. */
+#ifndef PCAPIF_RX_LOCK_LWIP
+#define PCAPIF_RX_LOCK_LWIP()
+#endif
+#ifndef PCAPIF_RX_UNLOCK_LWIP
+#define PCAPIF_RX_UNLOCK_LWIP()
+#endif
+
 #define ETH_MIN_FRAME_LEN      60U
 #define ETH_MAX_FRAME_LEN      1518U
 
 #define ADAPTER_NAME_LEN       128
 #define ADAPTER_DESC_LEN       128
+
+#if PCAPIF_RECEIVE_PROMISCUOUS
+#ifndef PCAPIF_LOOPBACKFILTER_NUM_TX_PACKETS
+#define PCAPIF_LOOPBACKFILTER_NUM_TX_PACKETS  128
+#endif
+struct pcapipf_pending_packet {
+  struct pcapipf_pending_packet *next;
+  u16_t len;
+  u8_t data[ETH_MAX_FRAME_LEN];
+};
+#endif /* PCAPIF_RECEIVE_PROMISCUOUS */
 
 /* Packet Adapter informations */
 struct pcapif_private {
@@ -174,7 +187,134 @@ struct pcapif_private {
   struct pcapifh_linkstate *link_state;
   enum pcapifh_link_event last_link_event;
 #endif /* PCAPIF_HANDLE_LINKSTATE */
+#if PCAPIF_RECEIVE_PROMISCUOUS
+  struct pcapipf_pending_packet packets[PCAPIF_LOOPBACKFILTER_NUM_TX_PACKETS];
+  struct pcapipf_pending_packet *tx_packets;
+  struct pcapipf_pending_packet *free_packets;
+#endif /* PCAPIF_RECEIVE_PROMISCUOUS */
 };
+
+#if PCAPIF_RECEIVE_PROMISCUOUS
+static void
+pcapif_init_tx_packets(struct pcapif_private *priv)
+{
+  int i;
+  priv->tx_packets = NULL;
+  priv->free_packets = NULL;
+  for (i = 0; i < PCAPIF_LOOPBACKFILTER_NUM_TX_PACKETS; i++) {
+    struct pcapipf_pending_packet *pack = &priv->packets[i];
+    pack->len = 0;
+    pack->next = priv->free_packets;
+    priv->free_packets = pack;
+  }
+}
+
+static void
+pcapif_add_tx_packet(struct pcapif_private *priv, unsigned char *buf, u16_t tot_len)
+{
+  struct pcapipf_pending_packet *tx;
+  struct pcapipf_pending_packet *pack;
+  SYS_ARCH_DECL_PROTECT(lev);
+
+  /* get a free packet (locked) */
+  SYS_ARCH_PROTECT(lev);
+  pack = priv->free_packets;
+  if ((pack == NULL) && (priv->tx_packets != NULL)) {
+    /* no free packets, reuse the oldest */
+    pack = priv->tx_packets;
+    priv->tx_packets = pack->next;
+  }
+  LWIP_ASSERT("no free packet", pack != NULL);
+  priv->free_packets = pack->next;
+  pack->next = NULL;
+  SYS_ARCH_UNPROTECT(lev);
+
+  /* set up the packet (unlocked) */
+  pack->len = tot_len;
+  memcpy(pack->data, buf, tot_len);
+
+  /* put the packet on the list (locked) */
+  SYS_ARCH_PROTECT(lev);
+  if (priv->tx_packets != NULL) {
+    for (tx = priv->tx_packets; tx->next != NULL; tx = tx->next);
+    LWIP_ASSERT("bug", tx != NULL);
+    tx->next = pack;
+  } else {
+    priv->tx_packets = pack;
+  }
+  SYS_ARCH_UNPROTECT(lev);
+}
+
+static int
+pcapif_compare_packets(struct pcapipf_pending_packet *pack, const void *packet, int packet_len)
+{
+  if (pack->len == packet_len) {
+    if (!memcmp(pack->data, packet, packet_len)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int
+pcaipf_is_tx_packet(struct netif *netif, const void *packet, int packet_len)
+{
+  struct pcapif_private *priv = (struct pcapif_private*)PCAPIF_GET_STATE_PTR(netif);
+  struct pcapipf_pending_packet *iter, *last;
+  SYS_ARCH_DECL_PROTECT(lev);
+
+  last = priv->tx_packets;
+  if (last == NULL) {
+    /* list is empty */
+    return 0;
+  }
+  /* compare the first packet */
+  if (pcapif_compare_packets(last, packet, packet_len)) {
+    SYS_ARCH_PROTECT(lev);
+    LWIP_ASSERT("list has changed", last == priv->tx_packets);
+    priv->tx_packets = last->next;
+    last->next = priv->free_packets;
+    priv->free_packets = last;
+    last->len = 0;
+    SYS_ARCH_UNPROTECT(lev);
+    return 1;
+  }
+  SYS_ARCH_PROTECT(lev);
+  for (iter = last->next; iter != NULL; last = iter, iter = iter->next) {
+    /* unlock while comparing (this works because we have a clean threading separation
+       of adding and removing items and adding is only done at the end) */
+    SYS_ARCH_UNPROTECT(lev);
+    if (pcapif_compare_packets(iter, packet, packet_len)) {
+      SYS_ARCH_PROTECT(lev);
+      LWIP_ASSERT("last != NULL", last != NULL);
+      last->next = iter->next;
+      iter->next = priv->free_packets;
+      priv->free_packets = iter;
+      last->len = 0;
+      SYS_ARCH_UNPROTECT(lev);
+      return 1;
+    }
+    SYS_ARCH_PROTECT(lev);
+  }
+  SYS_ARCH_UNPROTECT(lev);
+  return 0;
+}
+#else /* PCAPIF_RECEIVE_PROMISCUOUS */
+#define pcapif_init_tx_packets(priv)
+#define pcapif_add_tx_packet(priv, buf, tot_len)
+static int
+pcaipf_is_tx_packet(struct netif *netif, const void *packet, int packet_len)
+{
+  const struct eth_addr *src = (const struct eth_addr *)packet + 1;
+  if (packet_len >= (ETH_HWADDR_LEN * 2)) {
+    /* Don't let feedback packets through (limitation in winpcap?) */
+    if(!memcmp(src, netif->hwaddr, ETH_HWADDR_LEN)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+#endif /* PCAPIF_RECEIVE_PROMISCUOUS */
 
 #if PCAPIF_RX_REF
 struct pcapif_pbuf_custom
@@ -353,6 +493,7 @@ pcapif_init_adapter(int adapter_num, void *arg)
   }
 
   memset(pa, 0, sizeof(struct pcapif_private));
+  pcapif_init_tx_packets(pa);
   pa->input_fn_arg = arg;
 
   /* Retrieve the interfaces list */
@@ -635,6 +776,9 @@ pcapif_low_level_init(struct netif *netif)
     netif_set_link_up(netif);
   }
   sys_timeout(PCAPIF_LINKCHECK_INTERVAL_MS, pcapif_check_linkstate, netif);
+#else /* PCAPIF_HANDLE_LINKSTATE */
+  /* just set the link up so that lwIP can transmit */
+  netif_set_link_up(netif);
 #endif /* PCAPIF_HANDLE_LINKSTATE */
 
 #if PCAPIF_RX_USE_THREAD
@@ -707,6 +851,9 @@ pcapif_low_level_output(struct netif *netif, struct pbuf *p)
     MIB2_STATS_NETIF_INC(netif, ifoutdiscards);
     return ERR_BUF;
   }
+  if (netif_is_link_up(netif)) {
+    pcapif_add_tx_packet(pa, buf, tot_len);
+  }
 
   LINK_STATS_INC(link.xmit);
   MIB2_STATS_NETIF_ADD(netif, ifoutoctets, tot_len);
@@ -731,7 +878,6 @@ pcapif_low_level_input(struct netif *netif, const void *packet, int packet_len)
   int start;
   int length = packet_len;
   const struct eth_addr *dest = (const struct eth_addr*)packet;
-  const struct eth_addr *src = dest + 1;
   int unicast;
 #if PCAPIF_FILTER_GROUP_ADDRESSES && !PCAPIF_RECEIVE_PROMISCUOUS
   const u8_t bcast[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -739,8 +885,7 @@ pcapif_low_level_input(struct netif *netif, const void *packet, int packet_len)
   const u8_t ipv6mcast[] = {0x33, 0x33};
 #endif /* PCAPIF_FILTER_GROUP_ADDRESSES && !PCAPIF_RECEIVE_PROMISCUOUS */
 
-  /* Don't let feedback packets through (limitation in winpcap?) */
-  if(!memcmp(src, netif->hwaddr, ETH_HWADDR_LEN)) {
+  if (pcaipf_is_tx_packet(netif, packet, packet_len)) {
     /* don't update counters here! */
     return NULL;
   }
@@ -886,6 +1031,8 @@ pcapif_init(struct netif *netif)
   local_index = ethernetif_index++;
   SYS_ARCH_UNPROTECT(lev);
 
+  LWIP_ASSERT("pcapif needs an input callback", netif->input != NULL);
+
   netif->name[0] = IFNAME0;
   netif->name[1] = (char)(IFNAME1 + local_index);
   netif->linkoutput = pcapif_low_level_output;
@@ -906,6 +1053,9 @@ pcapif_init(struct netif *netif)
 
   netif->mtu = 1500;
   netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET | NETIF_FLAG_IGMP;
+#if LWIP_IPV6 && LWIP_IPV6_MLD
+  netif->flags |= NETIF_FLAG_MLD6;
+#endif /* LWIP_IPV6 && LWIP_IPV6_MLD */
   netif->hwaddr_len = ETH_HWADDR_LEN;
 
   NETIF_INIT_SNMP(netif, snmp_ifType_ethernet_csmacd, 100000000);

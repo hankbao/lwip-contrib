@@ -37,6 +37,7 @@
 #pragma warning (disable: 4996) /* 'strncpy' was declared deprecated */
 #pragma warning (disable: 4103) /* structure packing changed by including file */
 #pragma warning (disable: 4820) /* 'x' bytes padding added after data member 'y' */
+#pragma warning (disable: 4711) /* The compiler performed inlining on the given function, although it was not marked for inlining */
 #endif
 
 #define LWIP_PROVIDE_ERRNO
@@ -82,7 +83,19 @@ typedef int sys_prot_t;
 #define strdup   _strdup
 #endif
 
-#define LWIP_RAND() ((u32_t)rand())
+/* Define an example for LWIP_PLATFORM_DIAG: since this uses varargs and the old
+ * C standard lwIP targets does not support this in macros, we have extra brackets
+ * around the arguments, which are left out in the following macro definition:
+ */
+#if !defined(LWIP_TESTMODE) || !LWIP_TESTMODE
+void lwip_win32_platform_diag(const char *format, ...);
+#define LWIP_PLATFORM_DIAG(x) lwip_win32_platform_diag x
+#endif
+
+#ifndef LWIP_NORAND
+extern unsigned int sys_win_rand(void);
+#define LWIP_RAND() (sys_win_rand())
+#endif
 
 #define PPP_INCLUDE_SETTINGS_HEADER
 

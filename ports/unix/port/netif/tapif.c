@@ -223,29 +223,35 @@ static err_t
 low_level_output(struct netif *netif, struct pbuf *p)
 {
   struct tapif *tapif = (struct tapif *)netif->state;
-  char buf[1514];
+  char buf[1518]; /* max packet size including VLAN excluding CRC */
   ssize_t written;
 
 #if 0
   if (((double)rand()/(double)RAND_MAX) < 0.2) {
     printf("drop output\n");
-    return ERR_OK;
+    return ERR_OK; /* ERR_OK because we simulate packet loss on cable */
   }
 #endif
+
+  if (p->tot_len > sizeof(buf)) {
+    MIB2_STATS_NETIF_INC(netif, ifoutdiscards);
+    perror("tapif: packet too large");
+    return ERR_IF;
+  }
 
   /* initiate transfer(); */
   pbuf_copy_partial(p, buf, p->tot_len, 0);
 
   /* signal that packet should be sent(); */
   written = write(tapif->fd, buf, p->tot_len);
-  if (written == -1) {
+  if (written < p->tot_len) {
     MIB2_STATS_NETIF_INC(netif, ifoutdiscards);
     perror("tapif: write");
+    return ERR_IF;
+  } else {
+    MIB2_STATS_NETIF_ADD(netif, ifoutoctets, (u32_t)written);
+    return ERR_OK;
   }
-  else {
-    MIB2_STATS_NETIF_ADD(netif, ifoutoctets, written);
-  }
-  return ERR_OK;
 }
 /*-----------------------------------------------------------------------------------*/
 /*
@@ -261,16 +267,18 @@ low_level_input(struct netif *netif)
 {
   struct pbuf *p;
   u16_t len;
-  char buf[1514];
+  ssize_t readlen;
+  char buf[1518]; /* max packet size including VLAN excluding CRC */
   struct tapif *tapif = (struct tapif *)netif->state;
 
   /* Obtain the size of the packet and put it into the "len"
      variable. */
-  len = read(tapif->fd, buf, sizeof(buf));
-  if (len == (u16_t)-1) {
+  readlen = read(tapif->fd, buf, sizeof(buf));
+  if (readlen < 0) {
     perror("read returned -1");
     exit(1);
   }
+  len = (u16_t)readlen;
 
   MIB2_STATS_NETIF_ADD(netif, ifinoctets, len);
 

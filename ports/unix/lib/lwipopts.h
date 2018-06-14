@@ -75,7 +75,7 @@
  *    4 byte alignment -> #define MEM_ALIGNMENT 4
  *    2 byte alignment -> #define MEM_ALIGNMENT 2
  */
-#define MEM_ALIGNMENT                   1
+#define MEM_ALIGNMENT                   1U
 
 /**
  * MEM_SIZE: the size of the heap memory. If the application will send
@@ -414,6 +414,27 @@
 #define PPP_SUPPORT                     0
 
 
-/* Misc */
 
+/*
+   ---------------------------------------
+   ---------- Threading options ----------
+   ---------------------------------------
+*/
+
+#define LWIP_TCPIP_CORE_LOCKING    1
+
+#if !NO_SYS
+void sys_check_core_locking(void);
+#define LWIP_ASSERT_CORE_LOCKED()  sys_check_core_locking()
+void sys_mark_tcpip_thread(void);
+#define LWIP_MARK_TCPIP_THREAD()   sys_mark_tcpip_thread()
+
+#if LWIP_TCPIP_CORE_LOCKING
+void sys_lock_tcpip_core(void);
+#define LOCK_TCPIP_CORE()          sys_lock_tcpip_core()
+void sys_unlock_tcpip_core(void);
+#define UNLOCK_TCPIP_CORE()        sys_unlock_tcpip_core()
+#endif
+#endif
+    
 #endif /* LWIP_LWIPOPTS_H */

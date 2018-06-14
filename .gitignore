@@ -1,11 +1,20 @@
 *.o
 *.so
 *.a
+*lwip_unittests.xml
+*.suo
 .depend
+/examples/example_app/lwipcfg.h
+/ports/unix/example_app/build
+/ports/unix/unixsim/build
 /ports/unix/unixsim/simhost
 /ports/unix/unixsim/simrouter
 /ports/unix/unixsim/simnode
+/ports/unix/unixsim/makefsdata
 /ports/unix/minimal/echop
+/ports/unix/check/build
+/ports/win32/WindowsCMake/build
+/ports/win32/example_app/build
 /ports/win32/msvc/Debug
 /ports/win32/lwipcfg_msvc.h
 /ports/win32/msvc/Debug unittests
@@ -21,3 +30,4 @@
 /ports/unix/check/lwip_unittests
 /ports/win32/mingw/*.exe
 /ports/win32/mingw/*.map
+/ports/win32/mingw/cov-int

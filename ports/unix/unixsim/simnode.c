@@ -34,7 +34,6 @@
 
 #include <unistd.h>
 
-
 #include "lwip/mem.h"
 #include "lwip/memp.h"
 #include "lwip/sys.h"
@@ -44,9 +43,7 @@
 
 #include "lwip/stats.h"
 
-
 #include "lwip/tcpip.h"
-
 
 #include "netif/unixif.h"
 #include "netif/dropif.h"
@@ -130,10 +127,6 @@ main_thread(void *arg)
   sys_sem_wait(&sem);
   printf("TCP/IP initialized.\n");
 
-#ifdef MEM_PERF
-  mem_perf_init("/tmp/memstats.client");
-#endif /* MEM_PERF */
-
   /* Block forever. */
   sys_sem_wait(&sem);
 }
@@ -170,12 +163,5 @@ main(int argc, char **argv)
 }
 
 #endif /* LWIP_IPV4 */
-
-/* dummy, because SNTP is pulled in via LWIP_DHCP_GET_NTP_SRV */
-void
-sntp_set_system_time(u32_t sec)
-{
-  LWIP_UNUSED_ARG(sec);
-}
 
 /*-----------------------------------------------------------------------------------*/

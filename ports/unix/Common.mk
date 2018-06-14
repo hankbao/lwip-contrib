@@ -29,65 +29,20 @@
 # Author: Adam Dunkels <adam@sics.se>
 #
 
-#CC=gcc
-#CC=clang
-CCDEP?=$(CC)
-
-CFLAGS+=-g -Wall -DLWIP_DEBUG -pedantic -Werror \
-	-Wparentheses -Wsequence-point -Wswitch-default \
-	-Wextra -Wundef -Wshadow -Wpointer-arith -Wcast-qual \
-	-Wc++-compat -Wwrite-strings -Wold-style-definition -Wcast-align \
-	-Wmissing-prototypes -Wredundant-decls -Wnested-externs -Wno-address \
-	-Wunreachable-code -Wuninitialized
-
-ifeq (,$(findstring clang,$(CC)))
-CFLAGS+= -Wlogical-op
-# if GCC is newer than 4.8/4.9 you may use:
-#CFLAGS:=$(CFLAGS) -fsanitize=address -fstack-protector -fstack-check -fsanitize=undefined -fno-sanitize=alignment
-else
-# we cannot sanitize alignment on x86-64 targets because clang wants 64 bit alignment
-CFLAGS+= -fsanitize=address -fsanitize=undefined -fno-sanitize=alignment -Wdocumentation -Wno-documentation-deprecated-sync
-endif
-
-# not used for now but interesting:
-# -Wpacked
-# -ansi
-# -std=c89
-
-LDFLAGS+=-pthread -lutil -lrt
-CONTRIBDIR?=../../..
+# Architecture specific files.
 LWIPARCH?=$(CONTRIBDIR)/ports/unix/port
-ARFLAGS?=rs
-
-#Set this to where you have the lwip core module checked out from git
-#default assumes it's a dir named lwip at the same level as the contrib module
-LWIPDIR?=$(CONTRIBDIR)/../lwip/src
-
-CFLAGS+=-I. \
-	-I$(CONTRIBDIR) \
-	-I$(LWIPDIR)/include \
-	-I$(LWIPARCH)/include
-
-include $(CONTRIBDIR)/ports/Filelists.mk
-include $(LWIPDIR)/Filelists.mk
-
-# ARCHFILES: architecture specific files.
-ARCHFILES=$(LWIPARCH)/perf.c $(LWIPARCH)/sys_arch.c $(LWIPARCH)/netif/tapif.c $(LWIPARCH)/netif/tunif.c \
+SYSARCH?=$(LWIPARCH)/sys_arch.c
+ARCHFILES=$(LWIPARCH)/perf.c $(SYSARCH) $(LWIPARCH)/netif/tapif.c $(LWIPARCH)/netif/tunif.c \
 	$(LWIPARCH)/netif/unixif.c $(LWIPARCH)/netif/list.c $(LWIPARCH)/netif/tcpdump.c \
 	$(LWIPARCH)/netif/delif.c $(LWIPARCH)/netif/sio.c $(LWIPARCH)/netif/fifo.c
 
-LWIPFILES=$(LWIPNOAPPSFILES) $(ARCHFILES)
-LWIPOBJS=$(notdir $(LWIPFILES:.c=.o))
+UNIX_COMMON_MK_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+include $(UNIX_COMMON_MK_DIR)../Common.allports.mk
 
-LWIPLIBCOMMON=liblwipcommon.a
-$(LWIPLIBCOMMON): $(LWIPOBJS)
-	$(AR) $(ARFLAGS) $(LWIPLIBCOMMON) $?
+LDFLAGS+=-lutil
 
-APPFILES=$(CONTRIBAPPFILES) $(LWIPAPPFILES)
-APPLIB=liblwipapps.a
-APPOBJS=$(notdir $(APPFILES:.c=.o))
-$(APPLIB): $(APPOBJS)
-	$(AR) $(ARFLAGS) $(APPLIB) $?
-
-%.o:
-	$(CC) $(CFLAGS) -c $(<:.o=.c)
+UNAME_S:= $(shell uname -s)
+ifneq ($(UNAME_S),Darwin)
+# Darwin doesn't have pthreads or POSIX real-time extensions libs
+LDFLAGS+=-pthread -lrt
+endif

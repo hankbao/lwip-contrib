@@ -33,38 +33,34 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <time.h>
 #include <string.h>
 
 #include "lwip/opt.h"
 
 #include "lwip/init.h"
-
 #include "lwip/mem.h"
 #include "lwip/memp.h"
 #include "lwip/sys.h"
 #include "lwip/timeouts.h"
-
 #include "lwip/ip_addr.h"
+#include "lwip/stats.h"
+#include "lwip/tcp.h"
+#include "lwip/inet_chksum.h"
+#include "lwip/ip_addr.h"
+
+#include "arch/perf.h"
 
 #include "lwip/dns.h"
 #include "lwip/dhcp.h"
-
-#include "lwip/stats.h"
-
-#include "lwip/tcp.h"
-#include "lwip/inet_chksum.h"
 
 #include "lwip/tcpip.h"
 #include "lwip/sockets.h"
 
 #include "netif/tapif.h"
 #include "netif/tunif.h"
-
 #include "netif/unixif.h"
 #include "netif/dropif.h"
 #include "netif/pcapif.h"
-
 #include "netif/tcpdump.h"
 
 #ifndef LWIP_HAVE_SLIPIF
@@ -75,16 +71,6 @@
 #define SLIP_PTY_TEST 1
 #endif
 
-#if PPP_SUPPORT
-#include "netif/ppp/pppos.h"
-#include "lwip/sio.h"
-#define PPP_PTY_TEST 1
-#include <termios.h>
-#endif
-
-#include "lwip/ip_addr.h"
-#include "arch/perf.h"
-
 #include "lwip/apps/httpd.h"
 #include "apps/udpecho/udpecho.h"
 #include "apps/tcpecho/tcpecho.h"
@@ -93,24 +79,19 @@
 #include "apps/netio/netio.h"
 #include "apps/ping/ping.h"
 #include "lwip/apps/netbiosns.h"
-#include "lwip/apps/mdns.h"
-#include "lwip/apps/sntp.h"
-#include "lwip/apps/snmp.h"
-#include "lwip/apps/snmp_mib2.h"
-#include "apps/snmp_private_mib/private_mib.h"
-#include "lwip/apps/tftp_server.h"
+#include "addons/tcp_isn/tcp_isn.h"
+
+#include "examples/mdns/mdns_example.h"
+#include "examples/mqtt/mqtt_example.h"
+#include "examples/ppp/pppos_example.h"
+#include "examples/snmp/snmp_example.h"
+#include "examples/sntp/sntp_example.h"
+#include "examples/tftp/tftp_example.h"
 
 #if LWIP_RAW
 #include "lwip/icmp.h"
 #include "lwip/raw.h"
 #endif
-
-#if LWIP_SNMP
-static const struct snmp_mib *mibs[] = {
-  &mib2,
-  &mib_private
-};
-#endif /* LWIP_SNMP */
 
 #if LWIP_IPV4
 /* (manual) host IP configuration */
@@ -149,7 +130,8 @@ static struct option longopts[] = {
 
 static void init_netifs(void);
 
-static void usage(void)
+static void
+usage(void)
 {
   unsigned char i;
 
@@ -159,91 +141,6 @@ static void usage(void)
   }
 }
 
-#if 0
-static void
-tcp_debug_timeout(void *data)
-{
-  LWIP_UNUSED_ARG(data);
-#if TCP_DEBUG
-  tcp_debug_print_pcbs();
-#endif /* TCP_DEBUG */
-  sys_timeout(5000, tcp_debug_timeout, NULL);
-}
-#endif
-
-void
-sntp_set_system_time(u32_t sec)
-{
-  char buf[32];
-  struct tm current_time_val;
-  time_t current_time = (time_t)sec;
-
-  localtime_r(&current_time, &current_time_val);
-  
-  strftime(buf, sizeof(buf), "%d.%m.%Y %H:%M:%S", &current_time_val);
-  printf("SNTP time: %s\n", buf);
-}
-
-#if LWIP_MDNS_RESPONDER
-static void
-srv_txt(struct mdns_service *service, void *txt_userdata)
-{
-  err_t res;
-  LWIP_UNUSED_ARG(txt_userdata);
-  
-  res = mdns_resp_add_service_txtitem(service, "path=/", 6);
-  LWIP_ERROR("mdns add service txt failed\n", (res == ERR_OK), return);
-}
-#endif
-
-#if LWIP_UDP
-
-static void*
-tftp_open(const char* fname, const char* mode, u8_t is_write)
-{
-  LWIP_UNUSED_ARG(mode);
-  
-  if (is_write) {
-    return (void*)fopen(fname, "wb");
-  } else {
-    return (void*)fopen(fname, "rb");
-  }
-}
-static void 
-tftp_close(void* handle)
-{
-  fclose((FILE*)handle);
-}
-static int
-tftp_read(void* handle, void* buf, int bytes)
-{
-  if (fread(buf, 1, bytes, (FILE*)handle) != (size_t)bytes) {
-    return -1;
-  }
-  return 0;
-}
-static int
-tftp_write(void* handle, struct pbuf* p)
-{
-  while (p != NULL) {
-    if (fwrite(p->payload, 1, p->len, (FILE*)handle) != (size_t)p->len) {
-      return -1;
-    }
-    p = p->next;
-  }
-  
-  return 0;
-}
-
-static const struct tftp_context tftp = {
-  tftp_open,
-  tftp_close,
-  tftp_read,
-  tftp_write
-};
-
-#endif /* LWIP_UDP */
-
 static void
 tcpip_init_done(void *arg)
 {
@@ -251,46 +148,33 @@ tcpip_init_done(void *arg)
   sem = (sys_sem_t *)arg;
 
   init_netifs();
+  printf("Network interfaces initialized.\n");
 
+#if LWIP_TCP
+  netio_init();
+#endif
+#if LWIP_TCP && LWIP_NETCONN
+  tcpecho_init();
+  shell_init();
+  httpd_init();
+#endif
+#if LWIP_UDP && LWIP_NETCONN  
+  udpecho_init();
+#endif  
+#if LWIP_SOCKET
+  chargen_init();
+#endif
+  
 #if LWIP_IPV4
   netbiosns_set_name("simhost");
   netbiosns_init();
 #endif /* LWIP_IPV4 */
 
-  sntp_setoperatingmode(SNTP_OPMODE_POLL);
-#if LWIP_DHCP
-  sntp_servermode_dhcp(1); /* get SNTP server via DHCP */
-#else /* LWIP_DHCP */
-#if LWIP_IPV4
-  sntp_setserver(0, netif_ip_gw4(&netif));
-#endif /* LWIP_IPV4 */
-#endif /* LWIP_DHCP */
-  sntp_init();
-
-#if LWIP_SNMP
-  lwip_privmib_init();
-#if SNMP_LWIP_MIB2
-#if SNMP_USE_NETCONN
-  snmp_threadsync_init(&snmp_mib2_lwip_locks, snmp_mib2_lwip_synchronizer);
-#endif /* SNMP_USE_NETCONN */
-  snmp_mib2_set_syscontact_readonly((const u8_t*)"root", NULL);
-  snmp_mib2_set_syslocation_readonly((const u8_t*)"lwIP development PC", NULL);
-  snmp_mib2_set_sysdescr((const u8_t*)"simhost", NULL);
-#endif /* SNMP_LWIP_MIB2 */
-
-  snmp_set_mibs(mibs, LWIP_ARRAYSIZE(mibs));
-  snmp_init();
-#endif /* LWIP_SNMP */
-
-#if LWIP_MDNS_RESPONDER
-  mdns_resp_init();
-  mdns_resp_add_netif(&netif, "simhost", 3600);
-  mdns_resp_add_service(&netif, "myweb", "_http", DNSSD_PROTO_TCP, 80, 3600, srv_txt, NULL);
-#endif
-  
-#if LWIP_UDP
-  tftp_init(&tftp);
-#endif /* LWIP_UDP */
+  mdns_example_init();  
+  mqtt_example_init();
+  snmp_example_init();
+  sntp_example_init();
+  tftp_example_init();
   
   sys_sem_signal(sem);
 }
@@ -305,127 +189,6 @@ static ip_addr_t ipaddr_slip, netmask_slip, gw_slip;
 #endif /* LWIP_IPV4 */
 struct netif slipif;
 #endif /* LWIP_HAVE_SLIPIF */
-
-#if PPP_SUPPORT
-sio_fd_t ppp_sio;
-ppp_pcb *ppp;
-struct netif pppos_netif;
-
-static void
-pppos_rx_thread(void *arg)
-{
-  u32_t len;
-  u8_t buffer[128];
-  LWIP_UNUSED_ARG(arg);
-
-  /* Please read the "PPPoS input path" chapter in the PPP documentation. */
-  while (1) {
-    len = sio_read(ppp_sio, buffer, sizeof(buffer));
-    if (len > 0) {
-      /* Pass received raw characters from PPPoS to be decoded through lwIP
-       * TCPIP thread using the TCPIP API. This is thread safe in all cases
-       * but you should avoid passing data byte after byte. */
-      pppos_input_tcpip(ppp, buffer, len);
-    }
-  }
-}
-
-static void
-ppp_link_status_cb(ppp_pcb *pcb, int err_code, void *ctx)
-{
-    struct netif *pppif = ppp_netif(pcb);
-    LWIP_UNUSED_ARG(ctx);
-
-    switch(err_code) {
-    case PPPERR_NONE:               /* No error. */
-        {
-#if LWIP_DNS
-        const ip_addr_t *ns;
-#endif /* LWIP_DNS */
-        fprintf(stderr, "ppp_link_status_cb: PPPERR_NONE\n\r");
-#if LWIP_IPV4
-        fprintf(stderr, "   our_ip4addr = %s\n\r", ip4addr_ntoa(netif_ip4_addr(pppif)));
-        fprintf(stderr, "   his_ipaddr  = %s\n\r", ip4addr_ntoa(netif_ip4_gw(pppif)));
-        fprintf(stderr, "   netmask     = %s\n\r", ip4addr_ntoa(netif_ip4_netmask(pppif)));
-#endif /* LWIP_IPV4 */
-#if LWIP_IPV6
-        fprintf(stderr, "   our_ip6addr = %s\n\r", ip6addr_ntoa(netif_ip6_addr(pppif, 0)));
-#endif /* LWIP_IPV6 */
-
-#if LWIP_DNS
-        ns = dns_getserver(0);
-        fprintf(stderr, "   dns1        = %s\n\r", ipaddr_ntoa(ns));
-        ns = dns_getserver(1);
-        fprintf(stderr, "   dns2        = %s\n\r", ipaddr_ntoa(ns));
-#endif /* LWIP_DNS */
-#if PPP_IPV6_SUPPORT
-        fprintf(stderr, "   our6_ipaddr = %s\n\r", ip6addr_ntoa(netif_ip6_addr(pppif, 0)));
-#endif /* PPP_IPV6_SUPPORT */
-        }
-        break;
-
-    case PPPERR_PARAM:             /* Invalid parameter. */
-        printf("ppp_link_status_cb: PPPERR_PARAM\n");
-        break;
-
-    case PPPERR_OPEN:              /* Unable to open PPP session. */
-        printf("ppp_link_status_cb: PPPERR_OPEN\n");
-        break;
-
-    case PPPERR_DEVICE:            /* Invalid I/O device for PPP. */
-        printf("ppp_link_status_cb: PPPERR_DEVICE\n");
-        break;
-
-    case PPPERR_ALLOC:             /* Unable to allocate resources. */
-        printf("ppp_link_status_cb: PPPERR_ALLOC\n");
-        break;
-
-    case PPPERR_USER:              /* User interrupt. */
-        printf("ppp_link_status_cb: PPPERR_USER\n");
-        break;
-
-    case PPPERR_CONNECT:           /* Connection lost. */
-        printf("ppp_link_status_cb: PPPERR_CONNECT\n");
-        break;
-
-    case PPPERR_AUTHFAIL:          /* Failed authentication challenge. */
-        printf("ppp_link_status_cb: PPPERR_AUTHFAIL\n");
-        break;
-
-    case PPPERR_PROTOCOL:          /* Failed to meet protocol. */
-        printf("ppp_link_status_cb: PPPERR_PROTOCOL\n");
-        break;
-
-    case PPPERR_PEERDEAD:          /* Connection timeout. */
-        printf("ppp_link_status_cb: PPPERR_PEERDEAD\n");
-        break;
-
-    case PPPERR_IDLETIMEOUT:       /* Idle Timeout. */
-        printf("ppp_link_status_cb: PPPERR_IDLETIMEOUT\n");
-        break;
-
-    case PPPERR_CONNECTTIME:       /* PPPERR_CONNECTTIME. */
-        printf("ppp_link_status_cb: PPPERR_CONNECTTIME\n");
-        break;
-
-    case PPPERR_LOOPBACK:          /* Connection timeout. */
-        printf("ppp_link_status_cb: PPPERR_LOOPBACK\n");
-        break;
-
-    default:
-        printf("ppp_link_status_cb: unknown errCode %d\n", err_code);
-        break;
-    }
-}
-
-static u32_t
-ppp_output_cb(ppp_pcb *pcb, u8_t *data, u32_t len, void *ctx)
-{
-  LWIP_UNUSED_ARG(pcb);
-  LWIP_UNUSED_ARG(ctx);
-  return sio_write(ppp_sio, data, len);
-}
-#endif
 
 #if LWIP_NETIF_STATUS_CALLBACK
 static void
@@ -459,7 +222,7 @@ init_netifs(void)
 
 #if LWIP_IPV4
   netif_add(&slipif, ip_2_ip4(&ipaddr_slip), ip_2_ip4(&netmask_slip), ip_2_ip4(&gw_slip),
-            (void*)&siodev_slip, slipif_init, tcpip_input);
+            LWIP_PTR_NUMERIC_CAST(void*, siodev_slip), slipif_init, tcpip_input);
 #else /* LWIP_IPV4 */
   netif_add(&slipif, (void*)&siodev_slip, slipif_init, tcpip_input);
 #endif /* LWIP_IPV4 */
@@ -473,35 +236,7 @@ init_netifs(void)
   netif_set_up(&slipif);
 #endif /* LWIP_HAVE_SLIPIF */
 
-#if PPP_SUPPORT
-#if PPP_PTY_TEST
-  ppp_sio = sio_open(2);
-#else
-  ppp_sio = sio_open(0);
-#endif
-  if(!ppp_sio)
-  {
-      perror("Error opening device: ");
-      exit(1);
-  }
-
-  ppp = pppos_create(&pppos_netif, ppp_output_cb, ppp_link_status_cb, NULL);
-  if (!ppp)
-  {
-      printf("Could not create PPP control interface");
-      exit(1);
-  }
-
-#ifdef LWIP_PPP_CHAP_TEST
-  ppp_set_auth(ppp, PPPAUTHTYPE_CHAP, "lwip", "mysecret");
-#endif
-
-  ppp_connect(ppp, 0);
-
-#if LWIP_NETIF_STATUS_CALLBACK
-  netif_set_status_callback(&pppos_netif, netif_status_callback);
-#endif /* LWIP_NETIF_STATUS_CALLBACK */
-#endif /* PPP_SUPPORT */
+  pppos_example_init();
   
 #if LWIP_IPV4
 #if LWIP_DHCP
@@ -526,67 +261,13 @@ init_netifs(void)
 #if LWIP_DHCP
   dhcp_start(&netif);
 #endif /* LWIP_DHCP */
-
-#if 0
-  /* Only used for testing purposes: */
-  netif_add(&ipaddr, &netmask, &gw, NULL, pcapif_init, tcpip_input);
-#endif
-
-#if LWIP_TCP
-  netio_init();
-#endif
-#if LWIP_TCP && LWIP_NETCONN
-  tcpecho_init();
-  shell_init();
-  httpd_init();
-#endif
-#if LWIP_UDP && LWIP_NETCONN  
-  udpecho_init();
-#endif  
-#if LWIP_SOCKET
-  chargen_init();
-#endif
-  /*  sys_timeout(5000, tcp_debug_timeout, NULL);*/
 }
 
-/*-----------------------------------------------------------------------------------*/
-static void
-main_thread(void *arg)
-{
-  sys_sem_t sem;
-  LWIP_UNUSED_ARG(arg);
-
-  if(sys_sem_new(&sem, 0) != ERR_OK) {
-    LWIP_ASSERT("Failed to create semaphore", 0);
-  }
-  tcpip_init(tcpip_init_done, &sem);
-  sys_sem_wait(&sem);
-  printf("TCP/IP initialized.\n");
-
-#if LWIP_SOCKET
-  if (ping_flag) {
-    ping_init(&ping_addr);
-  }
-#endif
-
-  printf("Applications started.\n");
-
-#ifdef MEM_PERF
-  mem_perf_init("/tmp/memstats.client");
-#endif /* MEM_PERF */
-#if 0
-    stats_display();
-#endif
-#if PPP_SUPPORT
-  /* Block forever. */
-  sys_thread_new("pppos_rx_thread", pppos_rx_thread, NULL, DEFAULT_THREAD_STACKSIZE, DEFAULT_THREAD_PRIO);
-  sys_sem_wait(&sem);
-#endif
-}
 /*-----------------------------------------------------------------------------------*/
 int
 main(int argc, char **argv)
 {
+  sys_sem_t sem;
   int ch;
   char ip_str[IPADDR_STRLEN_MAX] = {0};
 
@@ -646,8 +327,29 @@ main(int argc, char **argv)
 #endif /* PERF */
 
   printf("System initialized.\n");
-    
-  sys_thread_new("main_thread", main_thread, NULL, DEFAULT_THREAD_STACKSIZE, DEFAULT_THREAD_PRIO);
+
+  lwip_init_tcp_isn(sys_now(), (u8_t*)&netif);
+  
+  if(sys_sem_new(&sem, 0) != ERR_OK) {
+    LWIP_ASSERT("Failed to create semaphore", 0);
+  }
+  tcpip_init(tcpip_init_done, &sem);
+  sys_sem_wait(&sem);
+  printf("TCP/IP initialized.\n");
+
+#if LWIP_SOCKET
+  if (ping_flag) {
+    ping_init(&ping_addr);
+  }
+#endif
+
+  printf("Applications started.\n");
+
+#if 0
+    stats_display();
+#endif
+
+  /* Block forever. */
   pause();
   return 0;
 }

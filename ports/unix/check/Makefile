@@ -32,19 +32,31 @@
 all compile: lwip_unittests
 .PHONY: all clean check
 
+# The include path to sys_arch.h and lwipopts.h must be first, so this must be before Common.mk
+CFLAGS=-DLWIP_NOASSERT_ON_ERROR -I/usr/include/check -I$(LWIPDIR)/../test/unit
+
+ifeq (clang,$(findstring clang,$(CC)))
+# check.h causes 'error: token pasting of ',' and __VA_ARGS__ is a GNU extension' with clang 9.0.0
+CFLAGS+=-Wno-gnu-zero-variadic-macro-arguments
+endif
+
+# Prevent compiling sys_arch.c of unix port because unit test provide their own port
+SYSARCH?=
 include ../Common.mk
 
-LDFLAGS:=$(LDFLAGS) -lcheck -lm -lsubunit
-CFLAGS:=$(CFLAGS) -DLWIP_NOASSERT_ON_ERROR -I/usr/include/check -I$(LWIPDIR)/../test/unit
+LDFLAGS:=-lcheck -lm $(LDFLAGS)
+
+ifneq ($(UNAME_S),Darwin)
+# check installed via brew on Darwin doesn't have a separate subunit library (must be statically linked)
+LDFLAGS+=-lsubunit
+endif
 
 TESTDIR=$(LWIPDIR)/../test/unit
-TESTFILES=$(TESTDIR)/lwip_unittests.c $(TESTDIR)/udp/test_udp.c $(TESTDIR)/etharp/test_etharp.c $(TESTDIR)/tcp/tcp_helper.c \
-	$(TESTDIR)/tcp/test_tcp_oos.c $(TESTDIR)/tcp/test_tcp.c $(TESTDIR)/core/test_mem.c $(TESTDIR)/dhcp/test_dhcp.c \
-	$(TESTDIR)/core/test_pbuf.c $(TESTDIR)/mdns/test_mdns.c 
+include $(TESTDIR)/Filelists.mk
 TESTOBJS=$(notdir $(TESTFILES:.c=.o))
 
 clean:
-	@rm -f *.o $(LWIPLIBCOMMON) $(APPLIB) lwip_unittests *.s .depend* *.core core
+	@rm -f *.o $(LWIPLIBCOMMON) $(APPLIB) lwip_unittests *.s .depend* *.core core lwip_unittests.xml
 
 depend dep: .depend
 
@@ -53,8 +65,14 @@ include .depend
 .depend: $(LWIPFILES) $(APPFILES) $(TESTFILES)
 	$(CCDEP) $(CFLAGS) -MM $^ > .depend || rm -f .depend
 
+ifneq ($(UNAME_S),Darwin)
+# clang on Darwin doesn't support --start-group
 lwip_unittests: .depend $(TESTOBJS) $(LWIPLIBCOMMON) $(APPLIB)
 	$(CC) $(CFLAGS) -o lwip_unittests $(TESTOBJS)  -Wl,--start-group $(LWIPLIBCOMMON) $(APPLIB) $(LDFLAGS) -Wl,--end-group
+else
+lwip_unittests: .depend $(TESTOBJS) $(LWIPLIBCOMMON) $(APPLIB)
+	$(CC) $(CFLAGS) -o lwip_unittests $(TESTOBJS) $(LWIPLIBCOMMON) $(APPLIB) $(LDFLAGS)
+endif
 
 check: lwip_unittests
 	@./lwip_unittests
