@@ -11,29 +11,83 @@ if(EXISTS ${MBEDTLSDIR}/include/mbedtls/ssl.h)
     
     # mbedtls uses cmake. Sweet!
     add_subdirectory(${LWIP_CONTRIB_DIR}/../mbedtls mbedtls)
-    add_definitions(-DLWIP_HAVE_MBEDTLS=1)
-    include_directories(${MBEDTLSDIR}/include)
-    link_libraries(mbedtls mbedcrypto mbedx509)
+
+    set (LWIP_MBEDTLS_DEFINITIONS
+        -DLWIP_HAVE_MBEDTLS=1
+    )
+    set (LWIP_MBEDTLS_INCLUDE_DIRS
+        ${MBEDTLSDIR}/include
+    )
+    set (LWIP_MBEDTLS_LINK_LIBRARIES
+        mbedtls
+        mbedcrypto
+        mbedx509
+    )
 endif()
 
-set(LWIP_GNU_CLANG_COMMON_FLAGS "-g -Wall -pedantic -Werror -Wparentheses -Wsequence-point -Wswitch-default -Wextra -Wundef -Wshadow -Wpointer-arith -Wcast-qual -Wc++-compat -Wwrite-strings -Wold-style-definition -Wcast-align -Wmissing-prototypes -Wnested-externs -Wunreachable-code -Wuninitialized -Wmissing-prototypes -Waggregate-return -Wlogical-not-parentheses")
+set(LWIP_COMPILER_FLAGS_GNU_CLANG
+    -g
+    -Wall
+    -pedantic
+    -Werror
+    -Wparentheses
+    -Wsequence-point
+    -Wswitch-default
+    -Wextra -Wundef
+    -Wshadow
+    -Wpointer-arith
+    -Wcast-qual
+    -Wc++-compat
+    -Wwrite-strings
+    -Wold-style-definition
+    -Wcast-align
+    -Wmissing-prototypes
+    -Wnested-externs
+    -Wunreachable-code
+    -Wuninitialized
+    -Wmissing-prototypes
+    -Waggregate-return
+    -Wlogical-not-parentheses
+    )
+
 if (NOT LWIP_HAVE_MBEDTLS)
-    set(LWIP_GNU_CLANG_COMMON_FLAGS "${LWIP_GNU_CLANG_COMMON_FLAGS} -Wredundant-decls")
+    list(APPEND LWIP_COMPILER_FLAGS_GNU_CLANG
+        -Wredundant-decls
+        )
 endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL GNU)
-    set(CMAKE_C_FLAGS "${LWIP_GNU_CLANG_COMMON_FLAGS} -Wlogical-op -Wtrampolines")
+    list(APPEND LWIP_COMPILER_FLAGS_GNU_CLANG
+        -Wlogical-op
+        -Wtrampolines
+        )
     if (NOT LWIP_HAVE_MBEDTLS)
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wc90-c99-compat")
+        list(APPEND LWIP_COMPILER_FLAGS_GNU_CLANG
+            -Wc90-c99-compat
+            )
     endif()
 
     if(NOT CMAKE_C_COMPILER_VERSION VERSION_LESS 4.9)
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fstack-protector -fstack-check -fsanitize=undefined -fno-sanitize=alignment")
+        list(APPEND LWIP_COMPILER_FLAGS_GNU_CLANG
+#            -fsanitize=address
+#            -fsanitize=undefined
+#            -fno-sanitize=alignment
+            -fstack-protector
+            -fstack-check
+            )
     endif()
+    set(LWIP_COMPILER_FLAGS ${LWIP_COMPILER_FLAGS_GNU_CLANG})
 endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL Clang)
-    set(CMAKE_C_FLAGS "${LWIP_GNU_CLANG_COMMON_FLAGS} -fsanitize=address -fsanitize=undefined -fno-sanitize=alignment -Wdocumentation -Wno-documentation-deprecated-sync")
+    list(APPEND LWIP_COMPILER_FLAGS_GNU_CLANG
+#        -fsanitize=address
+#        -fsanitize=undefined
+#        -fno-sanitize=alignment
+        -Wdocumentation
+        -Wno-documentation-deprecated-sync
+        )
+    set(LWIP_COMPILER_FLAGS ${LWIP_COMPILER_FLAGS_GNU_CLANG})
 endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL MSVC)

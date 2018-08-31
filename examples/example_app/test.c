@@ -295,7 +295,7 @@ link_callback(struct netif *state_netif)
 
 /* This function initializes all network interfaces */
 static void
-msvc_netif_init(void)
+test_netif_init(void)
 {
 #if LWIP_IPV4 && USE_ETHERNET
   ip4_addr_t ipaddr, netmask, gw;
@@ -369,7 +369,9 @@ msvc_netif_init(void)
 #endif
 #if LWIP_IPV6
   netif_create_ip6_linklocal_address(netif_default, 1);
+#if LWIP_IPV6_AUTOCONFIG 
   netif_default->ip6_autoconfig_enabled = 1;
+#endif
   printf("ip6 linklocal address: %s\n", ip6addr_ntoa(netif_ip6_addr(netif_default, 0)));
 #endif /* LWIP_IPV6 */
 #if LWIP_NETIF_STATUS_CALLBACK
@@ -404,7 +406,7 @@ msvc_netif_init(void)
   /* start PPPoE after ethernet netif is added! */
   ppp = pppoe_create(&ppp_netif, netif_default, NULL, NULL, pppLinkStatusCallback, NULL);
   if (ppp == NULL) {
-    printf("pppos_create error\n");
+    printf("pppoe_create error\n");
   } else {
     ppp_set_auth(ppp, PPPAUTHTYPE_ANY, username, password);
     ppp_connect(ppp, 0);
@@ -606,7 +608,7 @@ test_init(void * arg)
   srand((unsigned int)time(0));
 
   /* init network interfaces */
-  msvc_netif_init();
+  test_netif_init();
 
   /* init apps */
   apps_init();

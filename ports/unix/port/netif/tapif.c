@@ -56,10 +56,6 @@
 #include "netif/etharp.h"
 #include "lwip/ethip6.h"
 
-#if defined(LWIP_DEBUG) && defined(LWIP_TCPDUMP)
-#include "netif/tcpdump.h"
-#endif /* LWIP_DEBUG && LWIP_TCPDUMP */
-
 #include "netif/tapif.h"
 
 #define IFCONFIG_BIN "/sbin/ifconfig "
@@ -372,6 +368,12 @@ tapif_init(struct netif *netif)
 
 
 /*-----------------------------------------------------------------------------------*/
+void
+tapif_poll(struct netif *netif)
+{
+  tapif_input(netif);
+}
+
 #if NO_SYS
 
 int

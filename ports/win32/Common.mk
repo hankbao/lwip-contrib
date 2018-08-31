@@ -29,31 +29,23 @@
 # Author: Adam Dunkels <adam@sics.se>
 #
 
-all compile: simhost simrouter simnode makefsdata
-.PHONY: all
+CC=gcc
 
-include ../Common.mk
+# Architecture specific files.
+LWIPARCH?=$(CONTRIBDIR)/ports/win32
+SYSARCH?=$(LWIPARCH)/sys_arch.c
+ARCHFILES=$(SYSARCH) $(LWIPARCH)/pcapif.c \
+	$(LWIPARCH)/pcapif_helper.c $(LWIPARCH)/sio.c
 
-MAKEFSDATAOBJS=$(notdir $(MAKEFSDATAFILES:.c=.o))
+WIN32_COMMON_MK_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+include $(WIN32_COMMON_MK_DIR)/../Common.allports.mk
 
-clean:
-	rm -f *.o $(LWIPLIBCOMMON) $(APPLIB) simhost simnode simrouter *.s .depend* *.core core
+PCAPDIR=$(PCAP_DIR)/Include
+LDFLAGS+=-L$(PCAP_DIR)/lib -lwpcap -lpacket
+# -Wno-format: GCC complains about non-standard 64 bit modifier needed for MSVC runtime
+CFLAGS+=-I$(PCAPDIR) -Wno-format
 
-depend dep: .depend
-
-include .depend
-
-.depend: simhost.c simnode.c simrouter.c $(LWIPFILES) $(APPFILES) $(MAKEFSDATAFILES)
-	$(CCDEP) $(CFLAGS) -MM $^ > .depend || rm -f .depend
-
-simhost: .depend $(LWIPLIBCOMMON) $(APPLIB) simhost.o
-	$(CC) $(CFLAGS) -o simhost simhost.o -Wl,--start-group $(APPLIB) $(LWIPLIBCOMMON) -Wl,--end-group $(LDFLAGS)
-
-simrouter: .depend $(LWIPLIBCOMMON) $(APPLIB) simrouter.o
-	$(CC) $(CFLAGS) -o simrouter simrouter.o -Wl,--start-group $(APPLIB) $(LWIPLIBCOMMON) -Wl,--end-group $(LDFLAGS)
-
-simnode: .depend $(LWIPLIBCOMMON) $(APPLIB) simnode.o 
-	$(CC) $(CFLAGS) -o simnode simnode.o -Wl,--start-group $(APPLIB) $(LWIPLIBCOMMON) -Wl,--end-group $(LDFLAGS)
-
-makefsdata: .depend $(MAKEFSDATAOBJS)
-	$(CC) $(CFLAGS) -o makefsdata $(MAKEFSDATAOBJS)
+pcapif.o:
+	$(CC) $(CFLAGS) -Wno-error -Wno-redundant-decls -c $(<:.o=.c)
+pcapif_helper.o:
+	$(CC) $(CFLAGS) -std=c99 -Wno-redundant-decls -c $(<:.o=.c)

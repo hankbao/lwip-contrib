@@ -19,7 +19,9 @@ set(lwipcontribportwindows_SRCS
 set(WPDPACK_DIR ${LWIP_CONTRIB_DIR}/../WpdPack)
 find_library(WPCAP  wpcap  HINTS ${WPDPACK_DIR}/lib)
 find_library(PACKET packet HINTS ${WPDPACK_DIR}/lib)
-include_directories("${WPDPACK_DIR}/include")
-link_libraries(${WPCAP} ${PACKET})
 
 add_library(lwipcontribportwindows EXCLUDE_FROM_ALL ${lwipcontribportwindows_SRCS})
+target_include_directories(lwipcontribportwindows PRIVATE ${LWIP_INCLUDE_DIRS} "${WPDPACK_DIR}/include" ${LWIP_MBEDTLS_INCLUDE_DIRS})
+target_compile_options(lwipcontribportwindows PRIVATE ${LWIP_COMPILER_FLAGS})
+target_compile_definitions(lwipcontribaddons PRIVATE ${LWIP_DEFINITIONS} ${LWIP_MBEDTLS_DEFINITIONS})
+target_link_libraries(lwipcontribportwindows PUBLIC ${WPCAP} ${PACKET} ${LWIP_MBEDTLS_LINK_LIBRARIES})

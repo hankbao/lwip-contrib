@@ -29,24 +29,27 @@
 # Author: Adam Dunkels <adam@sics.se>
 #
 
-UNIXLIB=liblwip.a
-
-all: $(UNIXLIB) 
+all compile: example_app makefsdata
 .PHONY: all
 
 include ../Common.mk
 
-CFLAGS+=-fPIC
+CFLAGS+=-I$(CONTRIBDIR)/examples/example_app
+
+MAKEFSDATAOBJS=$(notdir $(MAKEFSDATAFILES:.c=.o))
 
 clean:
-	rm -f *.o $(LWIPLIBCOMMON) *.s .depend* *.core core
+	cmd /c del /q *.o $(LWIPLIBCOMMON) $(APPLIB) test.exe *.s .depend* *.map
 
 depend dep: .depend
 
 include .depend
 
-$(UNIXLIB): $(LWIPLIBCOMMON) unixlib.o
-	$(CC) -g -nostartfiles -shared -o $@ $^
+.depend: $(CONTRIBDIR)/examples/example_app/test.c default_netif.c $(LWIPFILES) $(APPFILES) $(MAKEFSDATAFILES)
+	$(CCDEP) $(CFLAGS) -MM $^ > .depend || cmd /c del .depend
 
-.depend: unixlib.c $(LWIPFILES)
-	$(CCDEP) $(CFLAGS) -MM $^ > .depend || rm -f .depend
+example_app: .depend $(LWIPLIBCOMMON) $(APPLIB) default_netif.o test.o
+	$(CC) $(CFLAGS) -o example_app test.o default_netif.o -Wl,--start-group $(APPLIB) $(LWIPLIBCOMMON) -Wl,--end-group $(LDFLAGS) -Xlinker -Map=test.map
+
+makefsdata: .depend $(MAKEFSDATAOBJS)
+	$(CC) $(CFLAGS) -o makefsdata $(MAKEFSDATAOBJS)

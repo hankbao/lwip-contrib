@@ -6,6 +6,8 @@
 .depend
 /examples/example_app/lwipcfg.h
 /ports/unix/example_app/build
+/ports/unix/example_app/example_app
+/ports/unix/example_app/makefsdata
 /ports/unix/unixsim/build
 /ports/unix/unixsim/simhost
 /ports/unix/unixsim/simrouter
@@ -31,3 +33,5 @@
 /ports/win32/mingw/*.exe
 /ports/win32/mingw/*.map
 /ports/win32/mingw/cov-int
+/examples/example_app/lwipopts_test.h
+/ports/unix/example_app/iteropts.log

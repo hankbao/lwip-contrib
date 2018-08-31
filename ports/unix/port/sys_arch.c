@@ -84,6 +84,12 @@ get_monotonic_time(struct timespec *ts)
 #endif
 }
 
+#if SYS_LIGHTWEIGHT_PROT
+static pthread_mutex_t lwprot_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t lwprot_thread = (pthread_t)0xDEAD;
+static int lwprot_count = 0;
+#endif /* SYS_LIGHTWEIGHT_PROT */
+
 #if !NO_SYS
 
 static struct sys_thread *threads = NULL;
@@ -121,12 +127,6 @@ struct sys_thread {
   pthread_t pthread;
 };
 
-#if SYS_LIGHTWEIGHT_PROT
-static pthread_mutex_t lwprot_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_t lwprot_thread = (pthread_t)0xDEAD;
-static int lwprot_count = 0;
-#endif /* SYS_LIGHTWEIGHT_PROT */
-
 static struct sys_sem *sys_sem_new_internal(u8_t count);
 static void sys_sem_free_internal(struct sys_sem *sem);
 
@@ -153,26 +153,47 @@ introduce_thread(pthread_t id)
   return thread;
 }
 
+struct thread_wrapper_data
+{
+  lwip_thread_fn function;
+  void *arg;
+};
+
+static void *
+thread_wrapper(void *arg)
+{
+  struct thread_wrapper_data *thread_data = (struct thread_wrapper_data *)arg;
+
+  thread_data->function(thread_data->arg);
+
+  /* we should never get here */
+  free(arg);
+  return NULL;
+}
+
 sys_thread_t
 sys_thread_new(const char *name, lwip_thread_fn function, void *arg, int stacksize, int prio)
 {
   int code;
   pthread_t tmp;
   struct sys_thread *st = NULL;
+  struct thread_wrapper_data *thread_data;
   LWIP_UNUSED_ARG(name);
   LWIP_UNUSED_ARG(stacksize);
   LWIP_UNUSED_ARG(prio);
 
+  thread_data = (struct thread_wrapper_data *)malloc(sizeof(struct thread_wrapper_data));
+  thread_data->arg = arg;
+  thread_data->function = function;
   code = pthread_create(&tmp,
                         NULL, 
-                        (void *(*)(void *)) 
-                        function, 
-                        arg);
+                        thread_wrapper, 
+                        thread_data);
   
   if (0 == code) {
     st = introduce_thread(tmp);
   }
-  
+
   if (NULL == st) {
     LWIP_DEBUGF(SYS_DEBUG, ("sys_thread_new: pthread_create %d, st = 0x%lx",
                        code, (unsigned long)st));
@@ -181,7 +202,6 @@ sys_thread_new(const char *name, lwip_thread_fn function, void *arg, int stacksi
   return st;
 }
 
-#if !NO_SYS
 #if LWIP_TCPIP_CORE_LOCKING
 static pthread_t lwip_core_lock_holder_thread_id;
 void sys_lock_tcpip_core(void)
@@ -217,7 +237,6 @@ void sys_check_core_locking(void)
 #endif /* LWIP_TCPIP_CORE_LOCKING */
   }
 }
-#endif /* !NO_SYS */
 
 /*-----------------------------------------------------------------------------------*/
 /* Mailbox */

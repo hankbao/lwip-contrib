@@ -15,26 +15,26 @@ set(lwipcontribportunix_SRCS
 
 set(lwipcontribportunixnetifs_SRCS
     ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/tapif.c
-    ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/tunif.c
-    ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/unixif.c
     ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/list.c
-    ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/tcpdump.c
-    ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/delif.c
     ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/sio.c
     ${LWIP_CONTRIB_DIR}/ports/unix/port/netif/fifo.c
 )
+
+add_library(lwipcontribportunix EXCLUDE_FROM_ALL ${lwipcontribportunix_SRCS} ${lwipcontribportunixnetifs_SRCS})
+target_include_directories(lwipcontribportunix PRIVATE ${LWIP_INCLUDE_DIRS} ${LWIP_MBEDTLS_INCLUDE_DIRS})
+target_compile_options(lwipcontribportunix PRIVATE ${LWIP_COMPILER_FLAGS})
+target_compile_definitions(lwipcontribportunix PRIVATE ${LWIP_DEFINITIONS} ${LWIP_MBEDTLS_DEFINITIONS})
+target_link_libraries(lwipcontribportunix PUBLIC ${LWIP_MBEDTLS_LINK_LIBRARIES})
 
 if (CMAKE_SYSTEM_NAME STREQUAL Linux)
     find_library(LIBUTIL util)
     find_library(LIBPTHREAD pthread)
     find_library(LIBRT rt)
-    link_libraries(${LIBUTIL} ${LIBPTHREAD} ${LIBRT})
+    target_link_libraries(lwipcontribportunix PUBLIC ${LIBUTIL} ${LIBPTHREAD} ${LIBRT})
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL Darwin)
     # Darwin doesn't have pthreads or POSIX real-time extensions libs
     find_library(LIBUTIL util)
-    link_libraries(${LIBUTIL})
+    target_link_libraries(lwipcontribportunix PUBLIC ${LIBUTIL})
 endif()
-
-add_library(lwipcontribportunix EXCLUDE_FROM_ALL ${lwipcontribportunix_SRCS} ${lwipcontribportunixnetifs_SRCS})
