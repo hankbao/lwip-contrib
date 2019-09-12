@@ -81,6 +81,12 @@ static HCRYPTPROV hcrypt;
 u32_t
 sys_win_rand(void)
 {
+#if NO_SYS
+  if (!SYS_INITIALIZED()) {
+    sys_init();
+    LWIP_ASSERT("initialization failed", SYS_INITIALIZED());
+  }
+#endif /* NO_SYS */
   u32_t ret;
   if (CryptGenRandom(hcrypt, sizeof(ret), (BYTE*)&ret)) {
     return ret;
