@@ -73,7 +73,7 @@ typedef __kernel_fd_set fd_set;
    header here and disable LwIP's version so that apps still can get
    the macros via LwIP headers and use system headers */
 #include <sys/types.h>
-#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS
+//#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS
 #endif
 
 struct sio_status_s;
