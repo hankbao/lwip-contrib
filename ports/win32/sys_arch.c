@@ -98,9 +98,15 @@ sys_win_rand(void)
 static void
 sys_win_rand_init(void)
 {
+  if (CryptAcquireContext(&hcrypt, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+    return;
+  }
+  DWORD err = GetLastError();
+  LWIP_PLATFORM_DIAG(("CryptAcquireContext with CRYPT_VERIFYCONTEXT failed with error %d\n", (int)err));
+
   if (!CryptAcquireContext(&hcrypt, NULL, NULL, PROV_RSA_FULL, 0)) {
     DWORD err = GetLastError();
-    LWIP_PLATFORM_DIAG(("CryptAcquireContext failed with error %d, trying to create NEWKEYSET", (int)err));
+    LWIP_PLATFORM_DIAG(("CryptAcquireContext failed with error %d, trying to create NEWKEYSET\n", (int)err));
     if(!CryptAcquireContext(&hcrypt, NULL, NULL, PROV_RSA_FULL, CRYPT_NEWKEYSET)) {
       char errbuf[128];
       err = GetLastError();
